@@ -4,6 +4,7 @@ var cors = require("cors");
 const jwt = require("jwt-simple");
 const app = express();
 const User = require("./models/users");
+const bcrypt = require("bcryptjs");
 
 app.use(cors());
 
@@ -11,18 +12,21 @@ app.use(cors());
 app.use(express.json());
 
 const router = express.Router();
-// Create a secret word that the server will use to encode and decode the token
+//create a secret word that the server will use to encode and decode the token
 const secret = "supersecret";
 
-// We can create a way to add a new person to a database
-// Post
+//we can create a way to add a new person to a database
+//post
 router.post("/user", async (req, res) => {
   if (!req.body.username || !req.body.password) {
-    res.status(400).json({ error: "Missing username or passwword" });
+    return res.status(400).json({ error: "Missing username or passwword" });
   }
+
+  //create a hash to encrypt the password
+  const hash = bcrypt.hashSync(req.body.password, 10);
   const newUser = await new User({
     username: req.body.username,
-    password: req.body.password,
+    password: hash,
     status: req.body.status,
   });
   try {
@@ -33,12 +37,12 @@ router.post("/user", async (req, res) => {
   }
 });
 
-// Authenticate a user to sign in
+//authenticate a user to sign in
 router.post("/auth", async (req, res) => {
   if (!req.body.username || !req.body.password) {
-    res.status(401).json({ error: "Missing username or password" });
-    return;
+    return res.status(401).json({ error: "Missing username or password" });
   }
+
   //find the user in the database
   try {
     const user = await User.findOne({ username: req.body.username });
@@ -46,10 +50,10 @@ router.post("/auth", async (req, res) => {
       res.status(401).json({ error: "User not found" });
     } else {
       //check the username and password to see if they match
-      if (user.password === req.body.password) {
+      if (bcrypt.compareSync(req.body.password, user.password)) {
         //create a token
         const token = jwt.encode({ username: user.username }, secret);
-        res.json({ token: token, username: user.username });
+        res.json({ token: token, username: user.username, userID: user._id });
       } else {
         res.status(401).json({ error: "Invalid password" });
       }
@@ -70,22 +74,17 @@ router.get("/songs", async (req, res) => {
   }
 });
 
-// Get a specific song by ID
+//Grab a single song in the database
 router.get("/songs/:id", async (req, res) => {
   try {
     const song = await Song.findById(req.params.id);
-    if (!song) {
-      return res.status(404).send({ error: "Song not found" });
-    }
     res.json(song);
-    console.log(song);
   } catch (err) {
-    console.error(err);
-    res.status(500).send({ error: "Server error" });
+    res.status(400).send(err);
   }
 });
 
-// Add a new song to the database
+//added a song to the database
 router.post("/songs", async (req, res) => {
   try {
     const song = await new Song(req.body);
@@ -97,16 +96,15 @@ router.post("/songs", async (req, res) => {
   }
 });
 
-// Update or put a single song... we use a put request and grab the song by id.. kind of combining adding and viewing a single song
+//update is to update an existing record/resource/database entry..it uses a put request
 router.put("/songs/:id", async (req, res) => {
+  //first we need to find and update the song the front end wants us to update.
+  //to do this we need to request the id of the song from request
+  //and the find it in the database and update it
   try {
-    // Grab data from front end
     const song = req.body;
-
-    // Update one function finds and updates an item based on id
     await Song.updateOne({ _id: req.params.id }, song);
     console.log(song);
-
     res.sendStatus(204);
   } catch (err) {
     res.status(400).send(err);
@@ -118,16 +116,24 @@ router.delete("/songs/:id", async (req, res) => {
     const song = await Song.findById(req.params.id);
     console.log(song);
     await Song.deleteOne({ _id: song._id });
+    res.sendStatus(204); //deleted status code
+  } catch (err) {
+    res.status(400).send(err);
+  }
+});
+
+router.put("/playlist", async (req, res) => {
+  try {
+    const user = await User.findById(req.body.userID);
+    await user.updateOne({ $push: { playlist: req.body.songID } });
+    console.log(user);
+
     res.sendStatus(204);
   } catch (err) {
     res.status(400).send(err);
   }
 });
-//use
-app.use("/api", router);
-//san
 
-app.listen(3000 || process.env.PORT, () => {
-  console.log("Server is running on http://localhost:3000");
-});
-//main
+app.use("/api", router);
+
+app.listen(process.env.PORT || 3000);
